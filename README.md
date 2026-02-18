@@ -62,9 +62,7 @@ Devices are identified by:
 1. Power on your Fulife lights
 2. Home Assistant will automatically detect them
 3. A notification will appear asking to configure the integration
-4. Confirm the default credentials or customize:
-   - **Mesh Name**: `Fulife` (default)
-   - **Password**: `2846` (default)
+4. Confirm the default credentials or customize
 
 ### Manual Setup
 
@@ -73,7 +71,7 @@ Devices are identified by:
 3. Search for "BTAlliance Mesh Lights"
 4. Enter mesh credentials:
    - **Mesh Name**: Your mesh network name (default: `Fulife`)
-   - **Password**: Your mesh password (default: `2846`)
+   - **Password**: Your mesh password
 5. Select a gateway device from discovered lights
 6. All mesh lights will be automatically discovered and added
 
