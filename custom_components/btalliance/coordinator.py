@@ -382,9 +382,18 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
     
     async def _async_update_data(self) -> Dict[int, Dict[str, Any]]:
         """Fetch data from mesh network via periodic broadcast query."""
+        # Try to reconnect if not connected
         if not self.login_valid:
-            _LOGGER.debug("Skipping poll - not logged in")
-            return self.light_states.copy()
+            _LOGGER.info("Not connected - attempting reconnection...")
+            try:
+                if await self.async_connect():
+                    _LOGGER.info("Reconnection successful")
+                else:
+                    _LOGGER.warning("Reconnection failed - will retry next poll")
+                    return self.light_states.copy()
+            except Exception as e:
+                _LOGGER.warning("Reconnection error: %s", e)
+                return self.light_states.copy()
         
         _LOGGER.debug("Periodic status poll - sending broadcast query")
         
@@ -397,6 +406,8 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
             query_cmd = self.protocol.generate_query_status_command()
             await self.client.write_gatt_char(COMMAND_UUID_STR, bytes(query_cmd))
         except Exception as e:
-            _LOGGER.warning("Periodic poll failed: %s", e)
+            _LOGGER.warning("Periodic poll failed: %s - marking disconnected", e)
+            self.login_valid = False
+            self.connected = False
         
         return self.light_states.copy()

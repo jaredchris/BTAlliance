@@ -37,41 +37,6 @@ async def async_setup_entry(
     # Track which mesh addresses have entities
     known_addresses: set[int] = set()
     
-    # Connect to gateway first
-    if not await coordinator.async_connect():
-        _LOGGER.error("Failed to connect to gateway")
-        return
-    
-    # Discover mesh devices
-    _LOGGER.info("Discovering mesh devices...")
-    discovered = await coordinator.async_discover_mesh_devices()
-    
-    # Also include any devices discovered during connection (from 0xDC notifications)
-    all_devices = {**coordinator.discovered_devices, **discovered}
-    
-    if not all_devices:
-        _LOGGER.warning("No mesh devices discovered, adding gateway only")
-        all_devices = {1: {'is_on': False, 'luminance': 0}}
-    
-    # Create light entities for each discovered device
-    entities = []
-    
-    for mesh_addr, state in all_devices.items():
-        if mesh_addr not in known_addresses:
-            known_addresses.add(mesh_addr)
-            entities.append(
-                BTAllianceMeshLight(
-                    coordinator=coordinator,
-                    mesh_addr=mesh_addr,
-                    mesh_name=mesh_name,
-                    entry_id=entry.entry_id,
-                )
-            )
-    
-    _LOGGER.info("Adding %d light entities", len(entities))
-    async_add_entities(entities)
-    
-    # Now register callback for future dynamic device discovery
     def add_new_device(mesh_addr: int) -> None:
         """Add a new light entity for a discovered mesh device."""
         if mesh_addr in known_addresses:
@@ -89,7 +54,30 @@ async def async_setup_entry(
             )
         ])
     
+    # Register callback for dynamic device discovery BEFORE connecting
+    # This way devices discovered during connection are added automatically
     coordinator.set_new_device_callback(add_new_device)
+    
+    # Start connection and discovery in background task to avoid blocking startup
+    async def connect_and_discover() -> None:
+        """Connect to gateway and discover devices in background."""
+        if not await coordinator.async_connect():
+            _LOGGER.error("Failed to connect to gateway")
+            return
+        
+        # Short discovery to find initial devices
+        _LOGGER.info("Discovering mesh devices...")
+        await coordinator.async_discover_mesh_devices(timeout=3.0)
+        
+        # Log what we found
+        _LOGGER.info("Initial discovery complete: %d devices", len(coordinator.discovered_devices))
+    
+    # Schedule connection in background - don't block platform setup
+    entry.async_create_background_task(
+        hass,
+        connect_and_discover(),
+        "btalliance_connect",
+    )
 
 
 class BTAllianceMeshLight(CoordinatorEntity, LightEntity):
