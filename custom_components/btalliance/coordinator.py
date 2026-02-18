@@ -5,12 +5,18 @@ import logging
 import os
 import time
 from typing import Any, Callable, Dict, Optional
-from uuid import UUID
 
 from homeassistant.components import bluetooth
-from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+from homeassistant.components.bluetooth import (
+    BluetoothServiceInfoBleak,
+    async_ble_device_from_address,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+
+from bleak_retry_connector import establish_connection, BleakClientWithServiceCache
+from bleak import BleakClient
+from bleak.exc import BleakError
 
 from .const import (
     DOMAIN,
@@ -23,6 +29,12 @@ from .const import (
 from .protocol import TelinkProtocol
 
 _LOGGER = logging.getLogger(__name__)
+
+# UUID strings for bleak
+SERVICE_UUID_STR = "00010203-0405-0607-0809-0a0b0c0d1910"
+START_SESSION_UUID_STR = "00010203-0405-0607-0809-0a0b0c0d1914"
+NOTIFY_UUID_STR = "00010203-0405-0607-0809-0a0b0c0d1911"
+COMMAND_UUID_STR = "00010203-0405-0607-0809-0a0b0c0d1912"
 
 
 class BTAllianceMeshCoordinator(DataUpdateCoordinator):
@@ -146,49 +158,37 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
     
     async def async_connect(self) -> bool:
         """Connect to the gateway device and establish session."""
-        from bleak import BleakClient
-        from bleak.exc import BleakError
+        mac_str = self._format_mac(self.gateway_address)
+        _LOGGER.info("Connecting to gateway: %s", mac_str)
         
-        # Find the BLE device
-        self.ble_device = bluetooth.async_ble_device_from_address(
+        # Find the BLE device using HA's bluetooth integration
+        self.ble_device = async_ble_device_from_address(
             self.hass, 
-            self._format_mac(self.gateway_address),
+            mac_str,
             connectable=True
         )
         
         if self.ble_device is None:
-            _LOGGER.error("Gateway device not found: %s", self._format_mac(self.gateway_address))
+            _LOGGER.error("Gateway device not found: %s", mac_str)
             return False
         
+        _LOGGER.debug("Found BLE device: %s", self.ble_device)
+        
         try:
-            self.client = BleakClient(self.ble_device)
-            await self.client.connect()
+            # Use bleak_retry_connector for robust connection via ESPHome proxy
+            self.client = await establish_connection(
+                BleakClientWithServiceCache,
+                self.ble_device,
+                mac_str,
+                disconnected_callback=self._on_disconnect,
+            )
             self.connected = True
-            _LOGGER.debug("Connected to gateway: %s", self.ble_device.address)
+            _LOGGER.info("Connected to gateway: %s", self.ble_device.address)
         except BleakError as e:
             _LOGGER.error("Failed to connect to gateway: %s", e)
             return False
-        
-        # Discover services
-        try:
-            services = self.client.services
-            for service in services:
-                if UUID(service.uuid) == SERVICE_UUID:
-                    for char in service.characteristics:
-                        char_uuid = UUID(char.uuid)
-                        if char_uuid == START_SESSION_UUID:
-                            self.start_session_handle = char.handle
-                        elif char_uuid == NOTIFY_UUID:
-                            self.notify_handle = char.handle
-                        elif char_uuid == COMMAND_UUID:
-                            self.command_handle = char.handle
-            
-            if self.start_session_handle is None:
-                _LOGGER.error("PAIR characteristic not found")
-                return False
-                
         except Exception as e:
-            _LOGGER.error("GATT discovery failed: %s", e)
+            _LOGGER.error("Unexpected connection error: %s", e)
             return False
         
         # Login
@@ -200,23 +200,13 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
             login_payload = self.protocol.generate_login_payload(session_random)
             login_data[1:17] = login_payload
             
-            # Write login request
-            pair_char = None
-            for service in self.client.services:
-                for char in service.characteristics:
-                    if UUID(char.uuid) == START_SESSION_UUID:
-                        pair_char = char
-                        break
-            
-            if pair_char is None:
-                _LOGGER.error("PAIR characteristic not found for write")
-                return False
-            
-            await self.client.write_gatt_char(pair_char, bytes(login_data))
-            await asyncio.sleep(0.05)
+            _LOGGER.debug("Sending login request...")
+            await self.client.write_gatt_char(START_SESSION_UUID_STR, bytes(login_data))
+            await asyncio.sleep(0.1)
             
             # Read response
-            response = await self.client.read_gatt_char(pair_char)
+            response = await self.client.read_gatt_char(START_SESSION_UUID_STR)
+            _LOGGER.debug("Login response: %s", response.hex() if response else "None")
             
             self.login_valid = self.protocol.process_login_response(response, session_random)
             
@@ -228,43 +218,34 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
             
         except Exception as e:
             _LOGGER.error("Login error: %s", e)
+            import traceback
+            _LOGGER.debug(traceback.format_exc())
             return False
         
         # Setup notifications
         try:
-            notify_char = None
-            for service in self.client.services:
-                for char in service.characteristics:
-                    if UUID(char.uuid) == NOTIFY_UUID:
-                        notify_char = char
-                        break
-            
-            if notify_char:
-                await self.client.start_notify(notify_char, self._on_notification)
-                await self.client.write_gatt_char(notify_char, bytes([0x01]))
-                _LOGGER.debug("Notifications enabled")
-                
+            _LOGGER.debug("Enabling notifications...")
+            await self.client.start_notify(NOTIFY_UUID_STR, self._on_notification)
+            await self.client.write_gatt_char(NOTIFY_UUID_STR, bytes([0x01]))
+            _LOGGER.debug("Notifications enabled")
         except Exception as e:
             _LOGGER.warning("Failed to enable notifications: %s", e)
         
         # Send datetime command
         try:
-            cmd_char = None
-            for service in self.client.services:
-                for char in service.characteristics:
-                    if UUID(char.uuid) == COMMAND_UUID:
-                        cmd_char = char
-                        break
-            
-            if cmd_char:
-                datetime_cmd = self.protocol.generate_datetime_command()
-                await self.client.write_gatt_char(cmd_char, bytes(datetime_cmd))
-                _LOGGER.debug("DateTime command sent")
-                
+            datetime_cmd = self.protocol.generate_datetime_command()
+            await self.client.write_gatt_char(COMMAND_UUID_STR, bytes(datetime_cmd))
+            _LOGGER.debug("DateTime command sent")
         except Exception as e:
             _LOGGER.warning("Failed to send datetime: %s", e)
         
         return True
+    
+    def _on_disconnect(self, client: BleakClient) -> None:
+        """Handle disconnection."""
+        _LOGGER.warning("Disconnected from gateway")
+        self.connected = False
+        self.login_valid = False
     
     def _on_notification(self, sender, data: bytearray) -> None:
         """Handle incoming BLE notification."""
@@ -284,30 +265,27 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Cannot discover - not logged in")
             return {}
         
+        _LOGGER.info("Starting mesh device discovery (timeout=%ds)...", timeout)
+        
         # Clear previous discoveries
         self.discovered_devices.clear()
         
-        # Send broadcast ON command to trigger 0xDC responses
+        # Send broadcast query status command to trigger 0xDC responses
         self.protocol.set_target_address(BROADCAST_ADDRESS)
         
         try:
-            cmd_char = None
-            for service in self.client.services:
-                for char in service.characteristics:
-                    if UUID(char.uuid) == COMMAND_UUID:
-                        cmd_char = char
-                        break
+            # Send status query to broadcast - this triggers 0xDC responses from all devices
+            query_cmd = self.protocol.generate_query_status_command()
+            await self.client.write_gatt_char(COMMAND_UUID_STR, bytes(query_cmd))
+            _LOGGER.debug("Sent broadcast query command")
             
-            if cmd_char:
-                # Send ON then OFF to trigger responses without changing state much
-                on_cmd = self.protocol.generate_on_off_command(True)
-                await self.client.write_gatt_char(cmd_char, bytes(on_cmd))
-                
-                # Wait for responses
-                await asyncio.sleep(timeout)
+            # Wait for responses
+            await asyncio.sleep(timeout)
                 
         except Exception as e:
             _LOGGER.error("Discovery command failed: %s", e)
+            import traceback
+            _LOGGER.debug(traceback.format_exc())
         
         _LOGGER.info("Discovered %d mesh devices: %s", 
                     len(self.discovered_devices), 
@@ -324,17 +302,8 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
         self.protocol.set_target_address(mesh_addr)
         
         try:
-            cmd_char = None
-            for service in self.client.services:
-                for char in service.characteristics:
-                    if UUID(char.uuid) == COMMAND_UUID:
-                        cmd_char = char
-                        break
-            
-            if cmd_char:
-                await self.client.write_gatt_char(cmd_char, bytes(command_data))
-                return True
-                
+            await self.client.write_gatt_char(COMMAND_UUID_STR, bytes(command_data))
+            return True
         except Exception as e:
             _LOGGER.error("Command send failed: %s", e)
         

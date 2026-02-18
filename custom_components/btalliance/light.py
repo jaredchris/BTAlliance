@@ -69,6 +69,7 @@ class BTAllianceMeshLight(CoordinatorEntity, LightEntity):
     """Representation of a BTAlliance mesh light."""
 
     _attr_has_entity_name = True
+    _attr_icon = "mdi:outdoor-lamp"
     _attr_supported_color_modes = {ColorMode.RGB, ColorMode.COLOR_TEMP}
     _attr_color_mode = ColorMode.RGB
     _attr_supported_features = LightEntityFeature(0)

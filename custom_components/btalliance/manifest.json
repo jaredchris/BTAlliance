@@ -1,14 +1,14 @@
 {
   "domain": "btalliance",
-  "name": "BTAlliance Mesh Lights",
+  "name": "Alliance Outdoor Lights",
   "codeowners": [],
   "config_flow": true,
-  "dependencies": ["bluetooth_adapters"],
-  "documentation": "https://github.com/your-repo/btalliance",
+  "dependencies": ["bluetooth"],
+  "documentation": "https://github.com/archiconda1976/BTAlliance",
   "integration_type": "hub",
   "iot_class": "local_push",
-  "requirements": ["cryptography>=41.0.0"],
-  "version": "1.0.0",
+  "requirements": ["cryptography>=41.0.0", "bleak-retry-connector>=3.0.0"],
+  "version": "0.0.2",
   "bluetooth": [
     {
       "local_name": "Fulife*"
