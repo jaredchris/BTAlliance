@@ -1,0 +1,52 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "BTAlliance Mesh Setup",
+        "description": "Enter your mesh network credentials. The default values work for most Fulife lights.",
+        "data": {
+          "mesh_name": "Mesh Name",
+          "password": "Password"
+        }
+      },
+      "pick_device": {
+        "title": "Select Gateway Device",
+        "description": "Select the Fulife light to use as the mesh gateway. All other lights on the mesh will be discovered automatically.",
+        "data": {
+          "address": "Gateway Device",
+          "mesh_name": "Mesh Name",
+          "password": "Password"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Confirm BTAlliance Device",
+        "description": "Found {name} at {address}. Configure mesh credentials below.",
+        "data": {
+          "mesh_name": "Mesh Name",
+          "password": "Password"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Device is already configured",
+      "not_supported": "Device is not a supported BTAlliance/Fulife light",
+      "no_devices_found": "No Fulife devices found. Make sure your lights are powered on and in range."
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to device",
+      "invalid_auth": "Invalid mesh name or password"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "BTAlliance Options",
+        "description": "Update mesh network credentials",
+        "data": {
+          "mesh_name": "Mesh Name",
+          "password": "Password"
+        }
+      }
+    }
+  }
+}
