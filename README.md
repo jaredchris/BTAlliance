@@ -2,8 +2,8 @@
 
 A Home Assistant custom integration for controlling BTAlliance/Fulife Telink BLE Mesh lights.
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub Release](https://img.shields.io/github/v/release/YOUR_USERNAME/pyBTAlliance)](https://github.com/YOUR_USERNAME/pyBTAlliance/releases)
 
 ## Features
 
@@ -40,10 +40,14 @@ Devices are identified by:
 ### HACS (Recommended)
 
 1. Open HACS in Home Assistant
-2. Click the three dots menu → Custom repositories
-3. Add this repository URL with category "Integration"
-4. Search for "BTAlliance" and install
-5. Restart Home Assistant
+2. Click the three dots menu → **Custom repositories**
+3. Add this repository URL: `https://github.com/YOUR_USERNAME/pyBTAlliance`
+4. Select category: **Integration**
+5. Click **Add**
+6. Search for "BTAlliance Mesh Lights" and click **Download**
+7. Restart Home Assistant
+
+> **Note**: You must create a GitHub release (tag) for HACS to detect the integration. After pushing to GitHub, create a release with a version tag like `v1.0.0`.
 
 ### Manual Installation
 
