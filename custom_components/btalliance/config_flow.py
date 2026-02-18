@@ -73,6 +73,18 @@ class BTAllianceConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not is_fulife_device(discovery_info):
             return self.async_abort(reason="not_supported")
         
+        # If ANY BTAlliance mesh hub is already configured, assume all Fulife devices
+        # in range are part of that mesh and don't show them as new config options.
+        # This prevents mesh member lights from triggering new config flows.
+        existing_entries = self._async_current_entries()
+        if existing_entries:
+            _LOGGER.debug(
+                "Device %s ignored - mesh hub already configured (%d entries)", 
+                discovery_info.address, 
+                len(existing_entries)
+            )
+            return self.async_abort(reason="already_configured")
+        
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
         
@@ -216,9 +228,14 @@ class BTAllianceConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @callback
     def _async_is_address_configured(self, address: str) -> bool:
-        """Check if address is already configured."""
+        """Check if address is already configured as unique_id or gateway."""
+        address_int = mac_to_int(address)
         for entry in self._async_current_entries():
+            # Check if this is the unique_id
             if entry.unique_id == address:
+                return True
+            # Check if this is a configured gateway address
+            if entry.data.get(CONF_GATEWAY_ADDRESS) == address_int:
                 return True
         return False
 

@@ -47,6 +47,7 @@ RETRY_DELAY: Final = 0.1
 
 # Mesh discovery
 MESH_DISCOVERY_TIMEOUT: Final = 10.0  # seconds to wait for mesh device discovery
+POLLING_INTERVAL: Final = 60  # seconds between status polling broadcasts
 
 # Config flow
 CONF_MESH_NAME: Final = "mesh_name"

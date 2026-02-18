@@ -18,13 +18,15 @@ from bleak_retry_connector import establish_connection, BleakClientWithServiceCa
 from bleak import BleakClient
 from bleak.exc import BleakError
 
+from datetime import timedelta
+
 from .const import (
     DOMAIN,
     SERVICE_UUID, START_SESSION_UUID, NOTIFY_UUID, COMMAND_UUID,
     NOTIFY_STATUS_RESPONSE, NOTIFY_LIGHT_STATUS,
     MAX_CONNECTION_RETRIES, CONNECTION_TIMEOUT, LOGIN_TIMEOUT,
     DISCONNECT_TIMEOUT, RETRY_DELAY, MESH_DISCOVERY_TIMEOUT,
-    BROADCAST_ADDRESS,
+    BROADCAST_ADDRESS, POLLING_INTERVAL,
 )
 from .protocol import TelinkProtocol
 
@@ -52,6 +54,7 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name=DOMAIN,
+            update_interval=timedelta(seconds=POLLING_INTERVAL),
         )
         
         self.gateway_address = gateway_address
@@ -284,8 +287,7 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
         
         _LOGGER.info("Starting mesh device discovery (timeout=%.1fs)...", timeout)
         
-        # Clear previous discoveries
-        self.discovered_devices.clear()
+        # Don't clear - keep devices discovered during connection
         
         # Send broadcast query status command to trigger 0xDC responses
         self.protocol.set_target_address(BROADCAST_ADDRESS)
@@ -379,5 +381,22 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
         return ':'.join([addr_hex[i:i+2] for i in range(0, 12, 2)])
     
     async def _async_update_data(self) -> Dict[int, Dict[str, Any]]:
-        """Fetch data from mesh network."""
+        """Fetch data from mesh network via periodic broadcast query."""
+        if not self.login_valid:
+            _LOGGER.debug("Skipping poll - not logged in")
+            return self.light_states.copy()
+        
+        _LOGGER.debug("Periodic status poll - sending broadcast query")
+        
+        # Send broadcast query to get status from all devices
+        # This will trigger 0xDC notifications which update discovered_devices
+        # and may discover new devices
+        self.protocol.set_target_address(BROADCAST_ADDRESS)
+        
+        try:
+            query_cmd = self.protocol.generate_query_status_command()
+            await self.client.write_gatt_char(COMMAND_UUID_STR, bytes(query_cmd))
+        except Exception as e:
+            _LOGGER.warning("Periodic poll failed: %s", e)
+        
         return self.light_states.copy()

@@ -7,6 +7,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN, CONF_GATEWAY_ADDRESS, CONF_MESH_NAME, CONF_PASSWORD
 from .coordinator import BTAllianceMeshCoordinator
@@ -35,6 +36,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Store coordinator
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
+    
+    # Register the hub device FIRST before any child devices
+    device_registry = dr.async_get(hass)
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=f"{mesh_name} Mesh Hub",
+        manufacturer="BTAlliance/Fulife",
+        model="Telink BLE Mesh Gateway",
+    )
     
     # Setup platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

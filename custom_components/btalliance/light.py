@@ -7,7 +7,7 @@ from typing import Any
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
-    ATTR_COLOR_TEMP,
+    ATTR_COLOR_TEMP_KELVIN,
     ATTR_RGB_COLOR,
     ColorMode,
     LightEntity,
@@ -37,6 +37,41 @@ async def async_setup_entry(
     # Track which mesh addresses have entities
     known_addresses: set[int] = set()
     
+    # Connect to gateway first
+    if not await coordinator.async_connect():
+        _LOGGER.error("Failed to connect to gateway")
+        return
+    
+    # Discover mesh devices
+    _LOGGER.info("Discovering mesh devices...")
+    discovered = await coordinator.async_discover_mesh_devices()
+    
+    # Also include any devices discovered during connection (from 0xDC notifications)
+    all_devices = {**coordinator.discovered_devices, **discovered}
+    
+    if not all_devices:
+        _LOGGER.warning("No mesh devices discovered, adding gateway only")
+        all_devices = {1: {'is_on': False, 'luminance': 0}}
+    
+    # Create light entities for each discovered device
+    entities = []
+    
+    for mesh_addr, state in all_devices.items():
+        if mesh_addr not in known_addresses:
+            known_addresses.add(mesh_addr)
+            entities.append(
+                BTAllianceMeshLight(
+                    coordinator=coordinator,
+                    mesh_addr=mesh_addr,
+                    mesh_name=mesh_name,
+                    entry_id=entry.entry_id,
+                )
+            )
+    
+    _LOGGER.info("Adding %d light entities", len(entities))
+    async_add_entities(entities)
+    
+    # Now register callback for future dynamic device discovery
     def add_new_device(mesh_addr: int) -> None:
         """Add a new light entity for a discovered mesh device."""
         if mesh_addr in known_addresses:
@@ -54,40 +89,7 @@ async def async_setup_entry(
             )
         ])
     
-    # Register callback for dynamic device discovery
     coordinator.set_new_device_callback(add_new_device)
-    
-    # Connect to gateway
-    if not await coordinator.async_connect():
-        _LOGGER.error("Failed to connect to gateway")
-        return
-    
-    # Discover mesh devices
-    _LOGGER.info("Discovering mesh devices...")
-    discovered = await coordinator.async_discover_mesh_devices()
-    
-    if not discovered:
-        _LOGGER.warning("No mesh devices discovered, adding gateway only")
-        # Add at least the gateway as device 1
-        discovered = {1: {'is_on': False, 'luminance': 0}}
-    
-    # Create light entities for each discovered device
-    entities = []
-    
-    for mesh_addr, state in discovered.items():
-        if mesh_addr not in known_addresses:
-            known_addresses.add(mesh_addr)
-            entities.append(
-                BTAllianceMeshLight(
-                    coordinator=coordinator,
-                    mesh_addr=mesh_addr,
-                    mesh_name=mesh_name,
-                    entry_id=entry.entry_id,
-                )
-            )
-    
-    _LOGGER.info("Adding %d light entities", len(entities))
-    async_add_entities(entities)
 
 
 class BTAllianceMeshLight(CoordinatorEntity, LightEntity):
@@ -97,8 +99,8 @@ class BTAllianceMeshLight(CoordinatorEntity, LightEntity):
     _attr_supported_color_modes = {ColorMode.RGB, ColorMode.COLOR_TEMP}
     _attr_color_mode = ColorMode.RGB
     _attr_supported_features = LightEntityFeature(0)
-    _attr_min_mireds = 153  # ~6500K cool
-    _attr_max_mireds = 370  # ~2700K warm
+    _attr_min_color_temp_kelvin = 2700  # warm
+    _attr_max_color_temp_kelvin = 6500  # cool
 
     def __init__(
         self,
@@ -170,15 +172,15 @@ class BTAllianceMeshLight(CoordinatorEntity, LightEntity):
         return None
     
     @property
-    def color_temp(self) -> int | None:
-        """Return the color temperature in mireds."""
+    def color_temp_kelvin(self) -> int | None:
+        """Return the color temperature in Kelvin."""
         state = self.coordinator.get_light_state(self._mesh_addr)
         if state and state.get('color_temp') is not None:
-            # Convert 0-100 (warm-cool) to mireds (high-low)
-            # 0 = warm = 370 mireds, 100 = cool = 153 mireds
+            # Convert 0-100 (warm-cool) to Kelvin
+            # 0 = warm = 2700K, 100 = cool = 6500K
             ct_pct = state['color_temp']
-            mireds = 370 - int(ct_pct * (370 - 153) / 100)
-            return mireds
+            kelvin = 2700 + int(ct_pct * (6500 - 2700) / 100)
+            return kelvin
         return None
     
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -197,17 +199,17 @@ class BTAllianceMeshLight(CoordinatorEntity, LightEntity):
             self._attr_color_mode = ColorMode.RGB
         
         # Handle color temperature
-        elif ATTR_COLOR_TEMP in kwargs:
-            mireds = kwargs[ATTR_COLOR_TEMP]
-            # Convert mireds to 0-100 (warm-cool)
-            # 370 mireds = 0 (warm), 153 mireds = 100 (cool)
-            ct_pct = int((370 - mireds) * 100 / (370 - 153))
+        elif ATTR_COLOR_TEMP_KELVIN in kwargs:
+            kelvin = kwargs[ATTR_COLOR_TEMP_KELVIN]
+            # Convert Kelvin to 0-100 (warm-cool)
+            # 2700K = 0 (warm), 6500K = 100 (cool)
+            ct_pct = int((kelvin - 2700) * 100 / (6500 - 2700))
             ct_pct = max(0, min(100, ct_pct))
             await self.coordinator.async_set_color_temp(self._mesh_addr, ct_pct)
             self._attr_color_mode = ColorMode.COLOR_TEMP
         
         # If no specific attributes, just turn on
-        if not any(k in kwargs for k in [ATTR_BRIGHTNESS, ATTR_RGB_COLOR, ATTR_COLOR_TEMP]):
+        if not any(k in kwargs for k in [ATTR_BRIGHTNESS, ATTR_RGB_COLOR, ATTR_COLOR_TEMP_KELVIN]):
             await self.coordinator.async_turn_on(self._mesh_addr)
         
         # Update state
