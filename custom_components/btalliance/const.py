@@ -46,7 +46,7 @@ DISCONNECT_TIMEOUT: Final = 0.3
 RETRY_DELAY: Final = 0.1
 
 # Mesh discovery
-MESH_DISCOVERY_TIMEOUT: Final = 5.0  # seconds to wait for mesh device discovery
+MESH_DISCOVERY_TIMEOUT: Final = 10.0  # seconds to wait for mesh device discovery
 
 # Config flow
 CONF_MESH_NAME: Final = "mesh_name"

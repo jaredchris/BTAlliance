@@ -82,6 +82,13 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
         
         # Discovery event
         self._discovery_complete = asyncio.Event()
+        
+        # Callback for adding new entities dynamically
+        self._new_device_callback: Optional[Callable[[int], None]] = None
+    
+    def set_new_device_callback(self, callback: Callable[[int], None]) -> None:
+        """Set callback to be called when new mesh devices are discovered."""
+        self._new_device_callback = callback
     
     def register_state_callback(self, mesh_addr: int, callback: Callable) -> None:
         """Register callback for state updates for a specific mesh address."""
@@ -132,6 +139,9 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
             is_on = parsed['is_on']
             luminance = parsed['luminance']
             
+            # Check if this is a new device
+            is_new_device = light_addr not in self.discovered_devices
+            
             # Track discovered device
             self.discovered_devices[light_addr] = {
                 'is_on': is_on,
@@ -154,6 +164,12 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("0xDC mesh: light=%d %s lum=%d (total: %d devices)",
                          light_addr, "ON" if is_on else "OFF", luminance,
                          len(self.discovered_devices))
+            
+            # Notify about new device discovery
+            if is_new_device and self._new_device_callback:
+                _LOGGER.info("New mesh device discovered: %d", light_addr)
+                self._new_device_callback(light_addr)
+            
             self._notify_state_change(light_addr)
     
     async def async_connect(self) -> bool:
@@ -249,6 +265,7 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
     
     def _on_notification(self, sender, data: bytearray) -> None:
         """Handle incoming BLE notification."""
+        _LOGGER.debug("Notification received: %s", data.hex() if data else "None")
         self._process_notification(bytearray(data))
     
     async def async_disconnect(self) -> None:
@@ -265,7 +282,7 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Cannot discover - not logged in")
             return {}
         
-        _LOGGER.info("Starting mesh device discovery (timeout=%ds)...", timeout)
+        _LOGGER.info("Starting mesh device discovery (timeout=%.1fs)...", timeout)
         
         # Clear previous discoveries
         self.discovered_devices.clear()
@@ -274,13 +291,18 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
         self.protocol.set_target_address(BROADCAST_ADDRESS)
         
         try:
-            # Send status query to broadcast - this triggers 0xDC responses from all devices
-            query_cmd = self.protocol.generate_query_status_command()
-            await self.client.write_gatt_char(COMMAND_UUID_STR, bytes(query_cmd))
-            _LOGGER.debug("Sent broadcast query command")
+            # Send multiple query commands to ensure all devices respond
+            for i in range(3):
+                query_cmd = self.protocol.generate_query_status_command()
+                _LOGGER.debug("Sending broadcast query command %d/3...", i + 1)
+                await self.client.write_gatt_char(COMMAND_UUID_STR, bytes(query_cmd))
+                await asyncio.sleep(1.0)  # Wait between commands
             
-            # Wait for responses
-            await asyncio.sleep(timeout)
+            # Wait additional time for responses
+            remaining = timeout - 3.0
+            if remaining > 0:
+                _LOGGER.debug("Waiting %.1fs for mesh responses...", remaining)
+                await asyncio.sleep(remaining)
                 
         except Exception as e:
             _LOGGER.error("Discovery command failed: %s", e)

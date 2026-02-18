@@ -32,6 +32,30 @@ async def async_setup_entry(
 ) -> None:
     """Set up BTAlliance lights from a config entry."""
     coordinator: BTAllianceMeshCoordinator = hass.data[DOMAIN][entry.entry_id]
+    mesh_name = entry.data.get(CONF_MESH_NAME, "Fulife")
+    
+    # Track which mesh addresses have entities
+    known_addresses: set[int] = set()
+    
+    def add_new_device(mesh_addr: int) -> None:
+        """Add a new light entity for a discovered mesh device."""
+        if mesh_addr in known_addresses:
+            return
+        
+        known_addresses.add(mesh_addr)
+        _LOGGER.info("Adding new light entity for mesh address %d", mesh_addr)
+        
+        async_add_entities([
+            BTAllianceMeshLight(
+                coordinator=coordinator,
+                mesh_addr=mesh_addr,
+                mesh_name=mesh_name,
+                entry_id=entry.entry_id,
+            )
+        ])
+    
+    # Register callback for dynamic device discovery
+    coordinator.set_new_device_callback(add_new_device)
     
     # Connect to gateway
     if not await coordinator.async_connect():
@@ -49,17 +73,18 @@ async def async_setup_entry(
     
     # Create light entities for each discovered device
     entities = []
-    mesh_name = entry.data.get(CONF_MESH_NAME, "Fulife")
     
     for mesh_addr, state in discovered.items():
-        entities.append(
-            BTAllianceMeshLight(
-                coordinator=coordinator,
-                mesh_addr=mesh_addr,
-                mesh_name=mesh_name,
-                entry_id=entry.entry_id,
+        if mesh_addr not in known_addresses:
+            known_addresses.add(mesh_addr)
+            entities.append(
+                BTAllianceMeshLight(
+                    coordinator=coordinator,
+                    mesh_addr=mesh_addr,
+                    mesh_name=mesh_name,
+                    entry_id=entry.entry_id,
+                )
             )
-        )
     
     _LOGGER.info("Adding %d light entities", len(entities))
     async_add_entities(entities)
@@ -69,7 +94,6 @@ class BTAllianceMeshLight(CoordinatorEntity, LightEntity):
     """Representation of a BTAlliance mesh light."""
 
     _attr_has_entity_name = True
-    _attr_icon = "mdi:outdoor-lamp"
     _attr_supported_color_modes = {ColorMode.RGB, ColorMode.COLOR_TEMP}
     _attr_color_mode = ColorMode.RGB
     _attr_supported_features = LightEntityFeature(0)
