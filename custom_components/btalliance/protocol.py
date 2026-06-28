@@ -52,8 +52,8 @@ class TelinkProtocol:
         data[5] = self.target_address[0]
         data[6] = self.target_address[1]
         data[7] = opcode
-        data[8] = VENDOR_ID & 0xFF
-        data[9] = (VENDOR_ID >> 8) & 0xFF
+	data[8] = (VENDOR_ID >> 8) & 0xFF
+	data[9] = VENDOR_ID & 0xFF
         return data
     
     def _encrypt_command(self, data: bytearray) -> bytearray:
