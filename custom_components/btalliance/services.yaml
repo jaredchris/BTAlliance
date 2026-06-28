@@ -1,0 +1,61 @@
+broadcast_turn_on:
+  name: Broadcast Turn On
+  description: Turn on all BTAlliance mesh lights with a single mesh broadcast.
+
+broadcast_turn_off:
+  name: Broadcast Turn Off
+  description: Turn off all BTAlliance mesh lights with a single mesh broadcast.
+
+broadcast_set_brightness:
+  name: Broadcast Set Brightness
+  description: Set brightness for all BTAlliance mesh lights.
+  fields:
+    brightness:
+      name: Brightness
+      description: Brightness from 0-255.
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: slider
+
+broadcast_set_rgb:
+  name: Broadcast Set RGB
+  description: Set RGB color for all BTAlliance mesh lights.
+  fields:
+    red:
+      name: Red
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 255
+    green:
+      name: Green
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 255
+    blue:
+      name: Blue
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 255
+
+broadcast_set_color_temp:
+  name: Broadcast Set Color Temperature
+  description: Set color temperature for all BTAlliance mesh lights.
+  fields:
+    color_temp_pct:
+      name: Color Temperature
+      description: Percentage from warm (0) to cool (100).
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: slider

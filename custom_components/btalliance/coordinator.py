@@ -88,6 +88,8 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
         
         # Callback for adding new entities dynamically
         self._new_device_callback: Optional[Callable[[int], None]] = None
+        
+        
     
     def set_new_device_callback(self, callback: Callable[[int], None]) -> None:
         """Set callback to be called when new mesh devices are discovered."""
@@ -369,7 +371,27 @@ class BTAllianceMeshCoordinator(DataUpdateCoordinator):
         self.protocol.set_target_address(mesh_addr)
         cmd = self.protocol.generate_query_status_command()
         return await self.async_send_command(mesh_addr, cmd)
-    
+
+    async def async_broadcast_turn_on(self) -> bool:
+        """Turn on all lights via mesh broadcast."""
+        return await self.async_turn_on(BROADCAST_ADDRESS)
+
+    async def async_broadcast_turn_off(self) -> bool:
+        """Turn off all lights via mesh broadcast."""
+        return await self.async_turn_off(BROADCAST_ADDRESS)
+
+    async def async_broadcast_set_brightness(self, brightness: int) -> bool:
+        """Set brightness for all lights via mesh broadcast."""
+        return await self.async_set_brightness(BROADCAST_ADDRESS, brightness)
+
+    async def async_broadcast_set_rgb(self, red: int, green: int, blue: int) -> bool:
+        """Set RGB color for all lights via mesh broadcast."""
+        return await self.async_set_rgb(BROADCAST_ADDRESS, red, green, blue)
+
+    async def async_broadcast_set_color_temp(self, color_temp_pct: int) -> bool:
+        """Set color temperature for all lights via mesh broadcast."""
+        return await self.async_set_color_temp(BROADCAST_ADDRESS, color_temp_pct)
+
     def get_light_state(self, mesh_addr: int) -> Optional[Dict[str, Any]]:
         """Get cached state for a light."""
         return self.light_states.get(mesh_addr)
